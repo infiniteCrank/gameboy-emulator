@@ -14,6 +14,7 @@ type CPU struct {
 	PC     uint16 // Program Counter
 	Cycles int    // Cycle counter
 	IM     byte   // Interrupt Master Flag
+	Timer  int    // Timer for emulation
 }
 
 // Flags
@@ -39,6 +40,7 @@ func NewCPU() *CPU {
 		PC:     0x0100, // Starting address for Game Boy
 		Cycles: 0,
 		IM:     0, // Interrupt Master Flag
+		Timer:  0, // Initialize Timer
 	}
 }
 
@@ -227,26 +229,30 @@ func (cpu *CPU) Execute(memory Memory) {
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 8
 
-	// Additional logical shifts and rotates (to be implemented)
-	case 0x07: // RLCA
-		if cpu.A&0x80 != 0 {
-			cpu.A = (cpu.A << 1) | 0x01
-			cpu.SetCarryFlag()
-		} else {
-			cpu.A <<= 1
-			cpu.ClearCarryFlag()
+	// BIT instructions (bit manipulation)
+	case 0xCB: // Example prefix for BIT operation
+		switch memory.Read(cpu.PC) {
+		case 0x40: // BIT 0, B
+			cpu.SetZeroFlagIfNeeded(cpu.B & 0x01)
+			cpu.Cycles += 8
+			cpu.PC++
+		case 0x41: // BIT 0, C
+			cpu.SetZeroFlagIfNeeded(cpu.C & 0x01)
+			cpu.Cycles += 8
+			cpu.PC++
+		case 0x42: // BIT 0, D
+			cpu.SetZeroFlagIfNeeded(cpu.D & 0x01)
+			cpu.Cycles += 8
+			cpu.PC++
+		// Add more BIT cases for each register...
+
+		default:
+			fmt.Printf("Unhandled BIT operation\n")
 		}
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
 
-	// Implement additional logical operations, shifts, and rotations here...
+	// Placeholder for timer handling (time-based operations)
+	// Timer management can be expanded later
 
-	// Placeholder for timer handling
-	case 0x10: // STOP (just an example placeholder instruction)
-		// Placeholder operation to implement later
-		cpu.Cycles += 4
-
-	// Interrupt handling functions (details to be fleshed out)
 	default:
 		fmt.Printf("Unknown opcode: %02X at PC: %04X\n", opcode, cpu.PC-1)
 	}
@@ -280,34 +286,30 @@ func (cpu *CPU) ClearCarryFlag() {
 
 // ADD operation
 func (cpu *CPU) Add(value byte) {
-	result := cpu.A + value
-	if result == 0 {
-		cpu.SetZeroFlag()
-	} else {
-		cpu.ClearZeroFlag()
-	}
-	if result < cpu.A {
-		cpu.SetCarryFlag() // Carry flag if there is an overflow
+	result := uint16(cpu.A) + uint16(value)
+	if result > 0xFF {
+		cpu.SetCarryFlag() // Set carry flag if there's an overflow
 	} else {
 		cpu.ClearCarryFlag()
 	}
-	cpu.A = result
+	cpu.A = byte(result) // Store the lower 8 bits
+	cpu.SetZeroFlagIfNeeded(cpu.A)
 }
 
 // SUB operation
 func (cpu *CPU) Sub(value byte) {
-	result := cpu.A - value
+	result := uint16(cpu.A) - uint16(value)
 	if result == 0 {
 		cpu.SetZeroFlag()
 	} else {
 		cpu.ClearZeroFlag()
 	}
-	if result > cpu.A {
+	if result > 0xFF {
 		cpu.SetCarryFlag() // Set carry flag if there's a borrow
 	} else {
 		cpu.ClearCarryFlag()
 	}
-	cpu.A = result
+	cpu.A = byte(result) // Store the lower 8 bits
 }
 
 // Stack operations
@@ -328,12 +330,10 @@ type SimpleMemory struct {
 	data [65536]byte // 64 KB of memory
 }
 
-// Read from memory
 func (m *SimpleMemory) Read(addr uint16) byte {
 	return m.data[addr]
 }
 
-// Write to memory
 func (m *SimpleMemory) Write(addr uint16, value byte) {
 	m.data[addr] = value
 }
@@ -359,12 +359,14 @@ func main() {
 	mem.Write(0x0104, 0x80) // ADD A, A
 	mem.Write(0x0105, 0x3E) // LD A, d8
 	mem.Write(0x0106, 0x0A) // Load 10 into A
-	mem.Write(0x0107, 0xC6) // ADD A, d8
-	mem.Write(0x0108, 0x02) // ADD A, 2
+	mem.Write(0x0107, 0xC6) // ADD A, d8 (A = A + 2)
+	mem.Write(0x0108, 0x02) // d8 value to add
 	mem.Write(0x0109, 0xC9) // RET
 
-	// Set initial values
-	cpu.A = 5        // Set Accumulator A to 5
+	// Initialize Accumulator A
+	cpu.A = 5 // Set Accumulator A to 5
+
+	// Execute instructions
 	cpu.Execute(mem) // Execute LD BC, d16
 	cpu.Execute(mem) // Execute LD (BC), A
 	cpu.Execute(mem) // Execute ADD A, A
