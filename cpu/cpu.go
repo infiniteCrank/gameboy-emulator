@@ -137,7 +137,7 @@ func (cpu *CPU) Execute(memory Memory) {
 		cpu.Cycles += 16
 
 	case 0xD9: // RETI
-		cpu.PC = cpu.Pop(memory) // Pop from stack to PC (similar to RET)
+		cpu.PC = cpu.Pop(memory) // Pop from stack to PC
 		cpu.Cycles += 16
 		// Handle additional logic required for Return from Interrupt here if needed
 
@@ -227,18 +227,26 @@ func (cpu *CPU) Execute(memory Memory) {
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 8
 
-	// Additional logic for timers and interrupts (to be implemented)
-	// Placeholder for timer handling (time-based operations)
-	case 0x07: // SLA A (example placeholder instruction for logical shifts)
-		cpu.A <<= 1
-		if cpu.A == 0 {
-			cpu.SetZeroFlag()
+	// Additional logical shifts and rotates (to be implemented)
+	case 0x07: // RLCA
+		if cpu.A&0x80 != 0 {
+			cpu.A = (cpu.A << 1) | 0x01
+			cpu.SetCarryFlag()
 		} else {
-			cpu.ClearZeroFlag()
+			cpu.A <<= 1
+			cpu.ClearCarryFlag()
 		}
+		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 4
 
-		// Interrupt handling functions (details to be fleshed out)
+	// Implement additional logical operations, shifts, and rotations here...
+
+	// Placeholder for timer handling
+	case 0x10: // STOP (just an example placeholder instruction)
+		// Placeholder operation to implement later
+		cpu.Cycles += 4
+
+	// Interrupt handling functions (details to be fleshed out)
 	default:
 		fmt.Printf("Unknown opcode: %02X at PC: %04X\n", opcode, cpu.PC-1)
 	}
@@ -320,22 +328,14 @@ type SimpleMemory struct {
 	data [65536]byte // 64 KB of memory
 }
 
+// Read from memory
 func (m *SimpleMemory) Read(addr uint16) byte {
 	return m.data[addr]
 }
 
+// Write to memory
 func (m *SimpleMemory) Write(addr uint16, value byte) {
 	m.data[addr] = value
-}
-
-// Placeholder function for handling timer-related operations
-func (cpu *CPU) TimerTick() {
-	// Logic for timer ticks to be implemented later
-}
-
-// Placeholder function for handling interrupts
-func (cpu *CPU) HandleInterrupts() {
-	// Logic for managing interrupts to be implemented later
 }
 
 // Convert boolean to int (0 or 1)
@@ -353,7 +353,7 @@ func main() {
 
 	// Load sample instructions into memory
 	mem.Write(0x0100, 0x01) // LD BC, d16
-	mem.Write(0x0101, 0x34) // Low byte
+	mem.Write(0x0101, 0x34) // Low byte (BC = 0x1234)
 	mem.Write(0x0102, 0x12) // High byte
 	mem.Write(0x0103, 0x02) // LD (BC), A
 	mem.Write(0x0104, 0x80) // ADD A, A
