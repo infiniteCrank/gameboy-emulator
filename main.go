@@ -1,29 +1,36 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
+
 	cpuPkg "clockworkgnome/cpu"    // Adjust this import to match your project structure
 	memPkg "clockworkgnome/memory" // Adjust this import to match your project structure
-	"fmt"
 )
 
 func main() {
-	fmt.Println("Starting Game Boy Emulator...")
-
-	// Initialize the memory and CPU with sample ROM data
-	ROMData := []byte{
-		0x3E, // LD A, d8
-		0x10, // Load 16 into A (A = 16)
-		0xC6, // ADD A, d8
-		0x02, // ADD A, 2 (A should become 18)
-		0xC9, // RET (return)
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <path_to_rom>")
+		return
 	}
 
+	// Load ROM data from file
+	romPath := os.Args[1]
+	ROMData, err := ioutil.ReadFile(romPath)
+	if err != nil {
+		fmt.Printf("Failed to load ROM: %v\n", err)
+		return
+	}
+
+	fmt.Println("Starting Game Boy Emulator...")
+
+	// Initialize the memory and CPU with loaded ROM data
 	mem := memPkg.NewMemory(ROMData) // Initialize memory with ROM data
 	cpu := cpuPkg.NewCPU()           // Create a new CPU instance
-	cpu.PC = 0x0000                  // Set initial program counter
 
-	// Set initial CPU values
-	cpu.A = 5 // Set Accumulator A to 5
+	// Set the Program Counter to the start of ROM
+	cpu.PC = 0x0000 // Start execution from the beginning of the ROM
 
 	// Main emulation loop
 	for {
