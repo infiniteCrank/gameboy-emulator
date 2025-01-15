@@ -1,23 +1,26 @@
 package main
 
 import (
-	cpuPkg "clockworkgnome/cpu" // Adjust this import to match your project structure
+	cpuPkg "clockworkgnome/cpu"    // Adjust this import to match your project structure
+	memPkg "clockworkgnome/memory" // Adjust this import to match your project structure
 	"fmt"
 )
 
 func main() {
 	fmt.Println("Starting Game Boy Emulator...")
 
-	// Initialize the memory and CPU
-	mem := &cpuPkg.SimpleMemory{}
-	cpu := cpuPkg.NewCPU()
+	// Initialize the memory and CPU with sample ROM data
+	ROMData := []byte{
+		0x3E, // LD A, d8
+		0x10, // Load 16 into A (A = 16)
+		0xC6, // ADD A, d8
+		0x02, // ADD A, 2 (A should become 18)
+		0xC9, // RET (return)
+	}
 
-	// Load sample instructions into memory for testing
-	mem.Write(0x0100, 0x3E) // LD A, d8
-	mem.Write(0x0101, 0x10) // Load 16 into A
-	mem.Write(0x0102, 0xC6) // ADD A, d8
-	mem.Write(0x0103, 0x02) // ADD A, 2
-	mem.Write(0x0104, 0xC9) // RET
+	mem := memPkg.NewMemory(ROMData) // Initialize memory with ROM data
+	cpu := cpuPkg.NewCPU()           // Create a new CPU instance
+	cpu.PC = 0x0000                  // Set initial program counter
 
 	// Set initial CPU values
 	cpu.A = 5 // Set Accumulator A to 5
@@ -44,7 +47,7 @@ func main() {
 		)
 
 		// Simple exit condition
-		if cpu.PC == 0x0105 { // End after executing the last instruction
+		if cpu.PC >= uint16(len(ROMData)) { // Check if PC exceeds ROM data size
 			fmt.Println("Ending emulation loop.")
 			break // Exit the emulation loop
 		}

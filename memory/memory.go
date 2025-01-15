@@ -32,8 +32,8 @@ type Memory struct {
 }
 
 // NewMemory initializes the Memory structure
-func NewMemory(rom []byte) *Memory {
-	m := &Memory{
+func NewMemory(rom []byte) Memory {
+	m := Memory{
 		rom: rom,
 	}
 	return m
@@ -43,8 +43,12 @@ func NewMemory(rom []byte) *Memory {
 func (m *Memory) Read(addr uint16) byte {
 	switch {
 	case addr >= ROMStart && addr <= ROMEnd:
-		// Read from ROM
-		return m.rom[addr]
+		// Read from ROM, checking if addr is within valid range
+		if addr-ROMStart < uint16(len(m.rom)) {
+			return m.rom[addr-ROMStart]
+		}
+		fmt.Printf("Invalid memory access: ROM address %04X out of range\n", addr)
+		return 0xFF // Return a default value for invalid access
 	case addr >= VRAMStart && addr <= VRAMEnd:
 		// Read from Video RAM
 		return m.vram[addr-0x8000]

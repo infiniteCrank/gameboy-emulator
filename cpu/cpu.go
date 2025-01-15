@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"clockworkgnome/memory"
 	"fmt"
 )
 
@@ -44,14 +45,8 @@ func NewCPU() *CPU {
 	}
 }
 
-// Memory interface for reading and writing
-type Memory interface {
-	Read(addr uint16) byte
-	Write(addr uint16, value byte)
-}
-
 // Execute method for fetching and executing instructions
-func (cpu *CPU) Execute(memory Memory) {
+func (cpu *CPU) Execute(memory memory.Memory) {
 	opcode := memory.Read(cpu.PC) // Fetch the opcode
 	cpu.PC++
 
@@ -132,6 +127,16 @@ func (cpu *CPU) Execute(memory Memory) {
 			cpu.PC += 2
 			cpu.Cycles += 12
 		}
+	case 0x3E: // LD A, d8
+		cpu.A = memory.Read(cpu.PC) // Load immediate value into register A
+		cpu.PC++
+		cpu.Cycles += 8 // 8 cycles for LD A, d8
+
+	case 0xC6: // ADD A, d8
+		d8 := memory.Read(cpu.PC) // Get the immediate value
+		cpu.Add(d8)               // Add to A
+		cpu.PC++
+		cpu.Cycles += 8 // 8 cycles for ADD A, d8
 
 	// RET Instructions
 	case 0xC9: // RET
@@ -313,13 +318,13 @@ func (cpu *CPU) Sub(value byte) {
 }
 
 // Stack operations
-func (cpu *CPU) Push(value uint16, memory Memory) {
+func (cpu *CPU) Push(value uint16, memory memory.Memory) {
 	cpu.SP -= 2
 	memory.Write(cpu.SP, byte(value&0xFF))
 	memory.Write(cpu.SP+1, byte(value>>8))
 }
 
-func (cpu *CPU) Pop(memory Memory) uint16 {
+func (cpu *CPU) Pop(memory memory.Memory) uint16 {
 	value := uint16(memory.Read(cpu.SP)) | (uint16(memory.Read(cpu.SP+1)) << 8)
 	cpu.SP += 2
 	return value
@@ -348,31 +353,17 @@ func btoi(b bool) int {
 
 // Main function to demonstrate CPU execution
 func main() {
-	mem := &SimpleMemory{}
+	ROMData := []byte{0x01, 0x34, 0x12, 0x02, 0x80, 0x3E, 0x0A, 0xC6, 0x02, 0xC9} // Sample ROM data
+	mem := memory.NewMemory(ROMData)                                              // Initialize memory with ROM data
 	cpu := NewCPU()
-
-	// Load sample instructions into memory
-	mem.Write(0x0100, 0x01) // LD BC, d16
-	mem.Write(0x0101, 0x34) // Low byte (BC = 0x1234)
-	mem.Write(0x0102, 0x12) // High byte
-	mem.Write(0x0103, 0x02) // LD (BC), A
-	mem.Write(0x0104, 0x80) // ADD A, A
-	mem.Write(0x0105, 0x3E) // LD A, d8
-	mem.Write(0x0106, 0x0A) // Load 10 into A
-	mem.Write(0x0107, 0xC6) // ADD A, d8 (A = A + 2)
-	mem.Write(0x0108, 0x02) // d8 value to add
-	mem.Write(0x0109, 0xC9) // RET
 
 	// Initialize Accumulator A
 	cpu.A = 5 // Set Accumulator A to 5
 
 	// Execute instructions
-	cpu.Execute(mem) // Execute LD BC, d16
-	cpu.Execute(mem) // Execute LD (BC), A
-	cpu.Execute(mem) // Execute ADD A, A
-	cpu.Execute(mem) // Execute LD A, d8
-	cpu.Execute(mem) // Execute ADD A, d8
-	cpu.Execute(mem) // Execute RET
+	for cpu.PC < uint16(len(ROMData)) {
+		cpu.Execute(mem) // Execute instructions in memory
+	}
 
 	// Print CPU Registers and Flags
 	fmt.Printf("A: %d (0x%02X)\n", cpu.A, cpu.A)
