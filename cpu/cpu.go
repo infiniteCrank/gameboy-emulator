@@ -13,6 +13,7 @@ type CPU struct {
 	SP     uint16 // Stack Pointer
 	PC     uint16 // Program Counter
 	Cycles int    // Cycle counter
+	IM     byte   // Interrupt Master Flag
 }
 
 // Flags
@@ -37,6 +38,7 @@ func NewCPU() *CPU {
 		SP:     0xFFFE, // Initial Stack Pointer
 		PC:     0x0100, // Starting address for Game Boy
 		Cycles: 0,
+		IM:     0, // Interrupt Master Flag
 	}
 }
 
@@ -52,158 +54,143 @@ func (cpu *CPU) Execute(memory Memory) {
 	cpu.PC++
 
 	switch opcode {
-	case 0x00: // NOP
-		cpu.Cycles += 4
+	// Jump Instructions
+	case 0xC3: // JP a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		cpu.PC = addr
+		cpu.Cycles += 16
 
-	// LD instructions
-	case 0x01: // LD BC, d16
-		cpu.B = memory.Read(cpu.PC)
-		cpu.C = memory.Read(cpu.PC + 1)
-		cpu.PC += 2
+	case 0xC2: // JP NZ, a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		if cpu.F&FlagZ == 0 { // Jump if Zero flag is clear
+			cpu.PC = addr
+			cpu.Cycles += 16
+		} else {
+			cpu.PC += 2
+			cpu.Cycles += 12
+		}
+
+	case 0xDA: // JP Z, a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		if cpu.F&FlagZ != 0 { // Jump if Zero flag is set
+			cpu.PC = addr
+			cpu.Cycles += 16
+		} else {
+			cpu.PC += 2
+			cpu.Cycles += 12
+		}
+
+	// JR Instructions
+	case 0x18: // JR r8
+		offset := int8(memory.Read(cpu.PC))
+		cpu.PC += uint16(offset) + 1
 		cpu.Cycles += 12
-	case 0x02: // LD (BC), A
-		addr := (uint16(cpu.B) << 8) | uint16(cpu.C)
-		memory.Write(addr, cpu.A)
-		cpu.Cycles += 8
-	case 0x0A: // LD A, (BC)
-		cpu.A = memory.Read((uint16(cpu.B) << 8) | uint16(cpu.C))
-		cpu.Cycles += 8
-	case 0x3E: // LD A, d8
-		cpu.A = memory.Read(cpu.PC)
-		cpu.PC++
-		cpu.Cycles += 8
-	case 0x32: // LD (HL-), A
-		addr := (uint16(cpu.H) << 8) | uint16(cpu.L)
-		memory.Write(addr, cpu.A)
-		cpu.L--
-		cpu.Cycles += 8
-	case 0x36: // LD (HL), d8
-		addr := (uint16(cpu.H) << 8) | uint16(cpu.L)
-		memory.Write(addr, memory.Read(cpu.PC))
+
+	case 0x20: // JR NZ, r8
+		offset := int8(memory.Read(cpu.PC))
+		if cpu.F&FlagZ == 0 { // Jump if Zero flag is clear
+			cpu.PC += uint16(offset)
+		}
 		cpu.PC++
 		cpu.Cycles += 12
 
-	// ADD instructions
-	case 0xC6: // ADD A, d8
-		value := memory.Read(cpu.PC)
+	case 0x28: // JR Z, r8
+		offset := int8(memory.Read(cpu.PC))
+		if cpu.F&FlagZ != 0 { // Jump if Zero flag is set
+			cpu.PC += uint16(offset)
+		}
 		cpu.PC++
-		cpu.Add(value)
-		cpu.Cycles += 8
-	case 0x87: // ADD A, A
-		cpu.Add(cpu.A)
-		cpu.Cycles += 4
-	case 0x80: // ADD A, B
-		cpu.Add(cpu.B)
-		cpu.Cycles += 4
-	case 0x82: // ADD A, D
-		cpu.Add(cpu.D)
-		cpu.Cycles += 4
+		cpu.Cycles += 12
 
-	// SUB instructions
-	case 0xD6: // SUB d8
-		value := memory.Read(cpu.PC)
-		cpu.PC++
-		cpu.Sub(value)
-		cpu.Cycles += 8
+	// CALL Instructions
+	case 0xCD: // CALL a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		cpu.Push(cpu.PC, memory) // Push current PC to stack
+		cpu.PC = addr
+		cpu.Cycles += 24
 
-	// INC instructions
-	case 0x04: // INC B
-		cpu.B++
-		cpu.SetZeroFlagIfNeeded(cpu.B)
-		cpu.Cycles += 4
-	case 0x0C: // INC C
-		cpu.C++
-		cpu.SetZeroFlagIfNeeded(cpu.C)
-		cpu.Cycles += 4
-	case 0x14: // INC D
-		cpu.D++
-		cpu.SetZeroFlagIfNeeded(cpu.D)
-		cpu.Cycles += 4
-	case 0x1C: // INC E
-		cpu.E++
-		cpu.SetZeroFlagIfNeeded(cpu.E)
-		cpu.Cycles += 4
-	case 0x24: // INC H
-		cpu.H++
-		cpu.SetZeroFlagIfNeeded(cpu.H)
-		cpu.Cycles += 4
-	case 0x2C: // INC L
-		cpu.L++
-		cpu.SetZeroFlagIfNeeded(cpu.L)
-		cpu.Cycles += 4
-	case 0x3C: // INC A
-		cpu.A++
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
+	case 0xC4: // CALL NZ, a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		if cpu.F&FlagZ == 0 { // Call if Zero flag is clear
+			cpu.Push(cpu.PC, memory)
+			cpu.PC = addr
+			cpu.Cycles += 24
+		} else {
+			cpu.PC += 2
+			cpu.Cycles += 12
+		}
 
-	// DEC instructions
-	case 0x05: // DEC B
-		cpu.B--
-		cpu.SetZeroFlagIfNeeded(cpu.B)
-		cpu.Cycles += 4
-	case 0x0D: // DEC C
-		cpu.C--
-		cpu.SetZeroFlagIfNeeded(cpu.C)
-		cpu.Cycles += 4
-	case 0x15: // DEC D
-		cpu.D--
-		cpu.SetZeroFlagIfNeeded(cpu.D)
-		cpu.Cycles += 4
-	case 0x1D: // DEC E
-		cpu.E--
-		cpu.SetZeroFlagIfNeeded(cpu.E)
-		cpu.Cycles += 4
-	case 0x25: // DEC H
-		cpu.H--
-		cpu.SetZeroFlagIfNeeded(cpu.H)
-		cpu.Cycles += 4
-	case 0x2D: // DEC L
-		cpu.L--
-		cpu.SetZeroFlagIfNeeded(cpu.L)
-		cpu.Cycles += 4
-	case 0x3D: // DEC A
-		cpu.A--
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
+	case 0xCC: // CALL Z, a16
+		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
+		if cpu.F&FlagZ != 0 { // Call if Zero flag is set
+			cpu.Push(cpu.PC, memory)
+			cpu.PC = addr
+			cpu.Cycles += 24
+		} else {
+			cpu.PC += 2
+			cpu.Cycles += 12
+		}
 
-	// XOR instructions
-	case 0xA8: // XOR B
-		cpu.A ^= cpu.B
+	// RET Instructions
+	case 0xC9: // RET
+		cpu.PC = cpu.Pop(memory) // Pop from stack to PC
+		cpu.Cycles += 16
+
+	case 0xD9: // RETI
+		cpu.PC = cpu.Pop(memory) // Pop from stack to PC (similar to RET)
+		cpu.Cycles += 16
+		// Handle additional logic required for Return from Interrupt here if needed
+
+	case 0xC0: // RET NZ
+		if cpu.F&FlagZ == 0 { // Return if Zero flag is clear
+			cpu.PC = cpu.Pop(memory)
+			cpu.Cycles += 16
+		} else {
+			cpu.Cycles += 8 // If not returning, just consume cycles
+		}
+
+	case 0xC8: // RET Z
+		if cpu.F&FlagZ != 0 { // Return if Zero flag is set
+			cpu.PC = cpu.Pop(memory)
+			cpu.Cycles += 16
+		} else {
+			cpu.Cycles += 8 // If not returning, just consume cycles
+		}
+
+	case 0xD0: // RET NC
+		if cpu.F&FlagC == 0 { // Return if Carry flag is clear
+			cpu.PC = cpu.Pop(memory)
+			cpu.Cycles += 16
+		} else {
+			cpu.Cycles += 8 // If not returning, just consume cycles
+		}
+
+	case 0xD8: // RET C
+		if cpu.F&FlagC != 0 { // Return if Carry flag is set
+			cpu.PC = cpu.Pop(memory)
+			cpu.Cycles += 16
+		} else {
+			cpu.Cycles += 8 // If not returning, just consume cycles
+		}
+
+	// Logical AND Instructions
+	case 0xA4: // AND B
+		cpu.A &= cpu.B
 		cpu.ClearCarryFlag()
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 4
-	case 0xA9: // XOR C
-		cpu.A ^= cpu.C
+	case 0xA5: // AND C
+		cpu.A &= cpu.C
 		cpu.ClearCarryFlag()
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 4
-	case 0xAA: // XOR D
-		cpu.A ^= cpu.D
-		cpu.ClearCarryFlag()
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
-	case 0xAB: // XOR E
-		cpu.A ^= cpu.E
-		cpu.ClearCarryFlag()
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
-	case 0xAC: // XOR H
-		cpu.A ^= cpu.H
-		cpu.ClearCarryFlag()
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
-	case 0xAD: // XOR L
-		cpu.A ^= cpu.L
-		cpu.ClearCarryFlag()
-		cpu.SetZeroFlagIfNeeded(cpu.A)
-		cpu.Cycles += 4
-	case 0xAE: // XOR (HL)
-		cpu.A ^= memory.Read((uint16(cpu.H) << 8) | uint16(cpu.L))
+	case 0xA6: // AND (HL)
+		cpu.A &= memory.Read((uint16(cpu.H) << 8) | uint16(cpu.L))
 		cpu.ClearCarryFlag()
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 8
 
-	// OR instructions
+	// Logical OR Instructions
 	case 0xB0: // OR B
 		cpu.A |= cpu.B
 		cpu.ClearCarryFlag()
@@ -240,27 +227,18 @@ func (cpu *CPU) Execute(memory Memory) {
 		cpu.SetZeroFlagIfNeeded(cpu.A)
 		cpu.Cycles += 8
 
-	// Control Flow Instructions
-	case 0xC3: // JP a16
-		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
-		cpu.PC = addr
-		cpu.Cycles += 16
+	// Additional logic for timers and interrupts (to be implemented)
+	// Placeholder for timer handling (time-based operations)
+	case 0x07: // SLA A (example placeholder instruction for logical shifts)
+		cpu.A <<= 1
+		if cpu.A == 0 {
+			cpu.SetZeroFlag()
+		} else {
+			cpu.ClearZeroFlag()
+		}
+		cpu.Cycles += 4
 
-	case 0x18: // JR r8
-		offset := int8(memory.Read(cpu.PC))
-		cpu.PC += uint16(offset) + 1
-		cpu.Cycles += 12
-
-	case 0xCD: // CALL a16
-		addr := uint16(memory.Read(cpu.PC)) | (uint16(memory.Read(cpu.PC+1)) << 8)
-		cpu.Push(cpu.PC, memory) // Push current PC to stack
-		cpu.PC = addr
-		cpu.Cycles += 24
-
-	case 0xC9: // RET
-		cpu.PC = cpu.Pop(memory) // Pop from stack to PC
-		cpu.Cycles += 16
-
+		// Interrupt handling functions (details to be fleshed out)
 	default:
 		fmt.Printf("Unknown opcode: %02X at PC: %04X\n", opcode, cpu.PC-1)
 	}
@@ -350,6 +328,16 @@ func (m *SimpleMemory) Write(addr uint16, value byte) {
 	m.data[addr] = value
 }
 
+// Placeholder function for handling timer-related operations
+func (cpu *CPU) TimerTick() {
+	// Logic for timer ticks to be implemented later
+}
+
+// Placeholder function for handling interrupts
+func (cpu *CPU) HandleInterrupts() {
+	// Logic for managing interrupts to be implemented later
+}
+
 // Convert boolean to int (0 or 1)
 func btoi(b bool) int {
 	if b {
@@ -364,10 +352,10 @@ func main() {
 	cpu := NewCPU()
 
 	// Load sample instructions into memory
-	mem.Write(0x0100, 0x01) // LDI BC, d16
+	mem.Write(0x0100, 0x01) // LD BC, d16
 	mem.Write(0x0101, 0x34) // Low byte
 	mem.Write(0x0102, 0x12) // High byte
-	mem.Write(0x0103, 0x02) // LDI (BC), A
+	mem.Write(0x0103, 0x02) // LD (BC), A
 	mem.Write(0x0104, 0x80) // ADD A, A
 	mem.Write(0x0105, 0x3E) // LD A, d8
 	mem.Write(0x0106, 0x0A) // Load 10 into A
@@ -377,11 +365,12 @@ func main() {
 
 	// Set initial values
 	cpu.A = 5        // Set Accumulator A to 5
-	cpu.Execute(mem) // Execute LDI BC, d16
-	cpu.Execute(mem) // Execute LDI (BC), A
+	cpu.Execute(mem) // Execute LD BC, d16
+	cpu.Execute(mem) // Execute LD (BC), A
 	cpu.Execute(mem) // Execute ADD A, A
 	cpu.Execute(mem) // Execute LD A, d8
 	cpu.Execute(mem) // Execute ADD A, d8
+	cpu.Execute(mem) // Execute RET
 
 	// Print CPU Registers and Flags
 	fmt.Printf("A: %d (0x%02X)\n", cpu.A, cpu.A)
